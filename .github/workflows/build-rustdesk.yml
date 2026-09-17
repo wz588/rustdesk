@@ -9,7 +9,6 @@ on:
 
 env:
   FLUTTER_VERSION: "3.24.5"
-  VCPKG_COMMIT: "386548c474f0d7f74d684246a8f82f1557193261"
   CARGO_TARGET_DIR: target
   OUTPUT_ZIP_NAME: RustDesk-Custom-Win64.zip
 
@@ -68,7 +67,6 @@ jobs:
         run: |
           git clone https://github.com/microsoft/vcpkg.git
           cd vcpkg
-          git checkout ${{ env.VCPKG_COMMIT }}
           .\bootstrap-vcpkg.bat
           echo "VCPKG_ROOT=$PWD" | Out-File -FilePath $env:GITHUB_ENV -Append
 
