@@ -1,0 +1,101 @@
+name: Build Custom RustDesk Client
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  VCPKG_COMMIT: "386548c474f0d7f74d684246a8f82f1557193261"
+  CARGO_TARGET_DIR: target
+  OUTPUT_ZIP_NAME: RustDesk-Custom-Win64.zip
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Git config
+        run: git config --global core.autocrlf input
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo
+            ./target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Flutter SDK
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.FLUTTER_ROOT }}
+          key: flutter-${{ env.FLUTTER_VERSION }}
+
+      - name: Install LLVM
+        uses: KyleMayes/install-llvm-action@v10
+        with:
+          version: "18.1.0"
+          directory: ${{ github.workspace }}/llvm
+          env: true
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Prepare vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          git checkout ${{ env.VCPKG_COMMIT }}
+          .\bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=$PWD" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Apply custom patches
+        run: |
+          git apply --verbose patches/config.rs.patch
+          git apply --verbose patches/ui-disable-update.patch
+
+      - name: Install bridge generator
+        run: cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid
+
+      - name: Generate bridge & flutter pub get
+        run: |
+          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart
+          cd flutter
+          flutter pub get
+
+      - name: Build RustDesk Portable
+        run: |
+          python build.py --flutter --portable --hwcodec --skip-portable-pack
+
+      - name: Archive build artifacts to zip
+        run: |
+          Compress-Archive -Path flutter/build/windows/x64/runner/Release/* -DestinationPath ${{ env.OUTPUT_ZIP_NAME }}
+
+      - name: Upload packed zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUTPUT_ZIP_NAME }}
+          path: ${{ env.OUTPUT_ZIP_NAME }}
