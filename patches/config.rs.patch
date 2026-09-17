@@ -18,15 +18,14 @@ index a053889..6c20154 100644
  ];
 -pub const RS_PUB_KEY: &str = "官方公钥";
 +pub const RS_PUB_KEY: &str = "zp4ev7m8mR2hqMB4hjxxH9GbroH8tzW8VbPYW4a5ufo=";
-
+ 
  pub const UPDATE_URL: &str = "";
-
+ 
 @@ -221,6 +221,16 @@ pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = {
      let mut map = HashMap::new();
      map.insert("allow-auto-update".to_string(), "N".to_string());
      map.insert("hide-server-settings".to_string(), "Y".to_string());
 +    map.insert("telemetry".to_string(), "N".to_string());
-+    // 完全访问权限配置
 +    map.insert("allow-file-transfer".to_string(), "Y".to_string());
 +    map.insert("allow-clipboard".to_string(), "Y".to_string());
 +    map.insert("allow-keyboard".to_string(), "Y".to_string());
