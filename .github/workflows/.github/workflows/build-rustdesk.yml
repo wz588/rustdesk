@@ -4,7 +4,7 @@ permissions:
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch:
 
 env:
@@ -41,7 +41,7 @@ jobs:
           key: flutter-${{ env.FLUTTER_VERSION }}
 
       - name: Install LLVM
-        uses: KyleMayes/install-llvm-action@v10
+        uses: KyleMayes/install-llvm-action@v1
         with:
           version: "18.1.0"
           directory: ${{ github.workspace }}/llvm
