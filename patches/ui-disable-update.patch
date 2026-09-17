@@ -1,0 +1,16 @@
+diff --git a/flutter/lib/widgets/about.dart b/flutter/lib/widgets/about.dart
+index 2307d42..9187c43 100644
+--- a/flutter/lib/widgets/about.dart
++++ b/flutter/lib/widgets/about.dart
+@@ -160,11 +160,6 @@ Widget build(BuildContext context) {
+               child: Text(l10n.version),
+             ),
+             const SizedBox(height: 12),
+-            TextButton(
+-              onPressed: () async => await checkUpdate(context),
+-              child: Text(l10n.checkUpdate),
+-            ),
+-            const SizedBox(height: 12),
+             TextButton(
+               onPressed: () {
+                 openUrl("https://rustdesk.com");
