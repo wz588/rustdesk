@@ -30,20 +30,20 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            ~/.cargo
-            ./target
+            C:\Users\runneradmin\.cargo
+            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache Flutter SDK
         uses: actions/cache@v3
         with:
-          path: ${{ env.FLUTTER_ROOT }}
+          path: C:\hostedtoolcache\windows\flutter\${{ env.FLUTTER_VERSION }}
           key: flutter-${{ env.FLUTTER_VERSION }}
 
       - name: Install LLVM
         uses: KyleMayes/install-llvm-action@v1
         with:
-          version: "18.1.0"
+          version: "17.0.6"
           directory: ${{ github.workspace }}/llvm
           env: true
 
