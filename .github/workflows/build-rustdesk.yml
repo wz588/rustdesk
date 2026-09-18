@@ -18,6 +18,12 @@ name: Build Custom RustDesk Client
 #      stale (they targeted a placeholder in place of the real public key,
 #      constants that no longer exist, and a Dart file that is gone). They are
 #      no longer used; see patches/apply-custom.ps1.
+#   6. `--skip-portable-pack` skipped the packaging that turns the build into the
+#      single self-extracting installer, so the run only produced a portable
+#      folder. A dedicated step now runs libs/portable/generate.py and emits
+#      rustdesk-<version>-install.exe - the same artifact `build.py` produces
+#      locally, and the only Windows form that installs both the app and the
+#      Windows service.
 #
 # Toolchain versions mirror the upstream Windows Flutter job in
 # .github/workflows/flutter-build.yml. Do not bump them independently - a
@@ -132,11 +138,12 @@ jobs:
             ./flutter/ios/Runner/bridge_generated.h
 
   # ---------------------------------------------------------------------------
-  # Windows x64 portable build. Step-for-step mirror of the upstream
-  # `build-for-windows-flutter` x86_64 leg, minus signing / MSI / installer.
+  # Windows x64 build. Step-for-step mirror of the upstream
+  # `build-for-windows-flutter` x86_64 leg, minus signing and MSI. Produces the
+  # portable folder and the single-file self-extracting installer.
   # ---------------------------------------------------------------------------
   build-windows:
-    name: Windows x64 portable
+    name: Windows x64 (portable folder + installer)
     needs: [generate-bridge]
     # windows-2022, not windows-latest: the custom Flutter engine is copied into
     # the hostedtoolcache path, which upstream only validates on the 2022 image.
@@ -239,18 +246,61 @@ jobs:
         shell: pwsh
         run: ./patches/apply-custom.ps1
 
-      - name: Build rustdesk
+      - name: Build rustdesk (portable folder)
         run: |
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec
           mv ./flutter/build/windows/x64/runner/Release ./rustdesk
 
-      - name: Package and upload the build output
+      - name: Build the single-file installer (self-extracted exe)
+        # This is exactly the packaging that --skip-portable-pack skips above. It
+        # is a step-for-step mirror of upstream's "Build self-extracted
+        # executable" (.github/workflows/flutter-build.yml).
+        #
+        # libs/portable/generate.py brotli-compresses every file under ./rustdesk
+        # into data.bin; the rustdesk-portable-packer stub embeds that blob with
+        # include_bytes! (libs/portable/src/bin_reader.rs), so the result is one
+        # self-extracting executable.
+        #
+        # The name MUST end in "install.exe". Two independent places key off that
+        # suffix, and both are required for the install + service flow:
+        #   * libs/portable/src/main.rs: click_setup = name ends with
+        #     "install.exe" -> wipes the extract dir, unpacks, then launches
+        #     rustdesk.exe --install.
+        #   * src/core_main.rs / src/common.rs is_setup(): the same suffix makes
+        #     the client push --install and open the install wizard.
+        # --install runs platform::windows::install_me(), whose command batch
+        # embeds `sc create <app> ... --service` + `sc start` (get_create_service),
+        # because this custom client never sets stop-service=Y. So this one .exe
+        # installs both the application and the Windows service.
+        shell: bash
+        run: |
+          # Upstream strips the legacy <dpiAware> line before packing;
+          # res/manifest.xml is embedded by libs/portable/build.rs.
+          sed -i '/dpiAware/d' res/manifest.xml
+          VERSION=$(grep -m1 -E '^version = "' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          echo "packaging version: $VERSION"
+          pushd ./libs/portable
+          pip3 install -r requirements.txt
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          popd
+          mkdir -p ./installer
+          mv ./target/release/rustdesk-portable-packer.exe "./installer/rustdesk-${VERSION}-install.exe"
+          ls -l ./installer
+
+      - name: Package and upload the portable folder
         # Uploaded before verification on purpose: an hour of build time should
         # never be thrown away by a mistake in the check below.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: ./rustdesk
+          if-no-files-found: error
+
+      - name: Upload the single-file installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-Install
+          path: ./installer/*.exe
           if-no-files-found: error
 
       - name: Verify customisation landed in the binary
