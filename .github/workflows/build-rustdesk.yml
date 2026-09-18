@@ -244,25 +244,55 @@ jobs:
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec
           mv ./flutter/build/windows/x64/runner/Release ./rustdesk
 
-      - name: Verify customisation landed in the binary
-        shell: pwsh
-        run: |
-          $exe = ".\rustdesk\rustdesk.exe"
-          if (-not (Test-Path $exe)) { throw "expected build output missing: $exe" }
-          & findstr /m /c:"rustdesk.newdebao.com" $exe | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            throw "customisation did not land: the self-hosted server address is not present in rustdesk.exe"
-          }
-          & findstr /m /c:"rs-ny.rustdesk.com" $exe | Out-Null
-          if ($LASTEXITCODE -eq 0) {
-            throw "official rendezvous server string is still present in rustdesk.exe"
-          }
-          Write-Host "customisation verified in rustdesk.exe"
-          Get-ChildItem ".\rustdesk" | Select-Object Name, Length | Format-Table -AutoSize
-
-      - name: Upload custom client
+      - name: Package and upload the build output
+        # Uploaded before verification on purpose: an hour of build time should
+        # never be thrown away by a mistake in the check below.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: ./rustdesk
           if-no-files-found: error
+
+      - name: Verify customisation landed in the binary
+        shell: pwsh
+        run: |
+          # rustdesk.exe here is only the Flutter C++ runner - it calls
+          # LoadLibraryA("librustdesk.dll") and contains no Rust code at all.
+          # build.py builds the Rust core with `cargo build --lib`, so every
+          # string we patch lives in librustdesk.dll. Scanning rustdesk.exe
+          # (as an earlier revision of this step did) can never succeed.
+          $Server   = 'rustdesk.newdebao.com'
+          $Official = 'rs-ny.rustdesk.com'
+          # iso-8859-1 maps one byte to one char, so Contains() is a byte search.
+          $Latin1 = [System.Text.Encoding]::GetEncoding(28591)
+
+          Get-ChildItem .\rustdesk -Recurse -File |
+            Select-Object @{n = 'Rel'; e = { $_.FullName.Substring((Resolve-Path .\rustdesk).Path.Length + 1) } },
+                          @{n = 'MB'; e = { [math]::Round($_.Length / 1MB, 2) } } |
+            Sort-Object MB -Descending |
+            Format-Table -AutoSize
+
+          $scanned = Get-ChildItem .\rustdesk -Recurse -File |
+            Where-Object { $_.Extension -in @('.exe', '.dll') }
+          if ($scanned.Count -eq 0) { throw 'no .exe/.dll found under .\rustdesk' }
+
+          $rows = foreach ($f in $scanned) {
+            $text = $Latin1.GetString([System.IO.File]::ReadAllBytes($f.FullName))
+            [pscustomobject]@{
+              File     = $f.Name
+              Server   = $text.Contains($Server)
+              Official = $text.Contains($Official)
+            }
+          }
+          $rows | Format-Table -AutoSize
+
+          $hitOfficial = @($rows | Where-Object { $_.Official })
+          if ($hitOfficial.Count -gt 0) {
+            throw ("official rendezvous server string is still present in: " +
+                   (($hitOfficial | ForEach-Object { $_.File }) -join ', '))
+          }
+          $hitServer = @($rows | Where-Object { $_.Server })
+          if ($hitServer.Count -eq 0) {
+            throw "customisation did not land: '$Server' is absent from every built .exe/.dll"
+          }
+          Write-Host ("customisation verified in: " + (($hitServer | ForEach-Object { $_.File }) -join ', '))
